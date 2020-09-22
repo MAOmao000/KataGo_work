@@ -273,7 +273,6 @@ vector<DeviceInfo> DeviceInfo::getAllDeviceInfosOnSystem(Logger* logger) {
   vector<cl_device_id> deviceIds(maxDevices);
   vector<cl_platform_id> platformIdsForDevices;
   vector<string> platformDescsForDevices;
-for(int dev_i = 0; dev_i < 2; dev_i++) {
   for(int platformIdx = 0; platformIdx < numPlatforms && numDevicesTotal < deviceIds.size(); platformIdx++) {
     size_t sizeRet;
     cl_platform_id platformId = platformIds[platformIdx];
@@ -319,7 +318,6 @@ for(int dev_i = 0; dev_i < 2; dev_i++) {
     if(logger != NULL)
       logger->write("Found " + Global::intToString(numDevices) + " device(s) on platform " + Global::intToString(platformIdx) + " with type CPU or GPU or Accelerator");
   }
-}
   deviceIds.resize(numDevicesTotal);
 
   vector<DeviceInfo> allDeviceInfos;
@@ -443,10 +441,6 @@ DevicesContext::DevicesContext(const vector<DeviceInfo>& allDeviceInfos, const v
     std::sort(gpuIdxsToUse.begin(),gpuIdxsToUse.end());
   }
 
-size_t numGpu = gpuIdxsToUse.size();
-for(size_t dev_i = 0; dev_i < numGpu; dev_i++) {
-  gpuIdxsToUse.push_back(gpuIdxsToUse[dev_i]+allDeviceInfos.size() / 2);
-}
   vector<cl_device_id> deviceIdsToUse;
   for(size_t i = 0; i<gpuIdxsToUse.size(); i++) {
     int gpuIdx = gpuIdxsToUse[i];
@@ -566,7 +560,6 @@ DevicesContext::~DevicesContext() {
 const InitializedDevice* DevicesContext::findGpuExn(int gpuIdx) const {
   if(gpuIdx == -1)
     gpuIdx = defaultGpuIdx;
-//return devicesToUse[gpuIdx];
   for(int i = 0; i<devicesToUse.size(); i++) {
     if(devicesToUse[i]->info.gpuIdx == gpuIdx)
       return devicesToUse[i];

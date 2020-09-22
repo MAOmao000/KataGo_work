@@ -796,13 +796,11 @@ void Search::computeRootValues() {
           getOpp(pla) == playoutDoublingAdvantagePla ? -searchParams.playoutDoublingAdvantage : searchParams.playoutDoublingAdvantage
         );
       }
-//std::cout << "Search::computeRootValues() start!" << std::endl;
       nnEvaluator->evaluate(
         board, hist, pla,
         nnInputParams,
         nnResultBuf, skipCache, includeOwnerMap
       );
-//std::cout << "Search::computeRootValues() end!" << std::endl;
       expectedScore = nnResultBuf.result->whiteScoreMean;
     }
 
@@ -1915,25 +1913,21 @@ void Search::initNodeNNOutput(
     vector<shared_ptr<NNOutput>> ptrs;
     for(int i = 0; i<searchParams.rootNumSymmetriesToSample; i++) {
       bool skipCacheThisIteration = skipCache || i > 0; //Skip cache on subsequent iterations to get new random draws for orientation
-//std::cout << "Search::initNodeNNOutput() 1 start!" << std::endl;
       nnEvaluator->evaluate(
         thread.board, thread.history, thread.pla,
         nnInputParams,
         thread.nnResultBuf, skipCacheThisIteration, includeOwnerMap
       );
-//std::cout << "Search::initNodeNNOutput() 1 end!" << std::endl;
       ptrs.push_back(std::move(thread.nnResultBuf.result));
     }
     node.nnOutput = std::shared_ptr<NNOutput>(new NNOutput(ptrs));
   }
   else {
-//std::cout << "Search::initNodeNNOutput() 2 start!" << std::endl;
     nnEvaluator->evaluate(
       thread.board, thread.history, thread.pla,
       nnInputParams,
       thread.nnResultBuf, skipCache, includeOwnerMap
     );
-//std::cout << "Search::initNodeNNOutput() 2 end!" << std::endl;
     node.nnOutput = std::move(thread.nnResultBuf.result);
   }
 

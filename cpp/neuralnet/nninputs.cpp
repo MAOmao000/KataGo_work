@@ -2404,27 +2404,5 @@ void NNInputs::fillRowV7(
     //NOTE: If ever changing which feature this is, must also update index in model.py where we multiply it into the scorebelief parity vector
     rowGlobal[18] = wave;
   }
-/*
-for(int i=0; i<NUM_FEATURES_SPATIAL_V7; i++) {
-  std::cout << "rowBin i=" << i << std::endl;
-  for(int j=0; j<nnXLen; j++) {
-    std::cout << "  ";
-    for(int k=0; k<nnYLen; k++) {
-      if(k>0)
-        std::cout << ",";
-      std::cout << rowBin[i*nnXLen*nnYLen+j*nnXLen+k];
-    }
-    std::cout << std::endl;
-  }
-}
-std::cout << "rowGlobal=" << std::endl;
-std::cout << "  ";
-for(int i=0; i<NUM_FEATURES_GLOBAL_V7; i++) {
-  if(i>0)
-    std::cout << ",";
-  std::cout << rowGlobal[i];
-}
-std::cout << std::endl;
-*/
 
 }

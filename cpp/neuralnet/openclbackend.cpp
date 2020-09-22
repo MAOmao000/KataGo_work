@@ -303,13 +303,11 @@ struct CompiledPrograms {
 
 struct ComputeContext {
   DevicesContext* devicesContext;
-//  map<cl_device_id,CompiledPrograms*> compiledProgramsByDeviceId;
-  map<int,CompiledPrograms*> compiledProgramsByDeviceId;
+  map<cl_device_id,CompiledPrograms*> compiledProgramsByDeviceId;
   int nnXLen;
   int nnYLen;
   enabled_t usingFP16Mode;
   enabled_t usingNHWCMode;
-int numGpu;
 
 #ifdef PROFILE_KERNELS
   static constexpr bool liveProfilingKernels = true;
@@ -332,7 +330,6 @@ int numGpu;
     usingNHWCMode = useNHWCMode;
 
     vector<DeviceInfo> allDeviceInfos = DeviceInfo::getAllDeviceInfosOnSystem(logger);
-numGpu = allDeviceInfos.size();
     devicesContext = new DevicesContext(allDeviceInfos,gIdxs,logger,liveProfilingKernels);
 
     for(int i = 0; i<devicesContext->devicesToUse.size(); i++) {
@@ -350,8 +347,7 @@ numGpu = allDeviceInfos.size();
         device->context, deviceIds, tuneParams,
         useFP16Storage, useFP16Compute, useFP16TensorCores
       );
-//      compiledProgramsByDeviceId[device->info.deviceId] = compiledPrograms;
-      compiledProgramsByDeviceId[device->info.gpuIdx] = compiledPrograms;
+      compiledProgramsByDeviceId[device->info.deviceId] = compiledPrograms;
     }
   }
 
@@ -472,8 +468,7 @@ struct ComputeHandleInternal {
     const InitializedDevice* device = computeContext->devicesContext->findGpuExn(gpuIdx);
     clContext = device->context;
     commandQueue = device->commandQueue;
-//    CompiledPrograms* progs = computeContext->compiledProgramsByDeviceId[device->info.deviceId];
-    CompiledPrograms* progs = computeContext->compiledProgramsByDeviceId[gpuIdx];
+    CompiledPrograms* progs = computeContext->compiledProgramsByDeviceId[device->info.deviceId];
     assert(progs != NULL);
     tuneParams = progs->tuneParams;
 
@@ -2786,14 +2781,6 @@ void NeuralNet::getOutput(
     }
   }
 
-}
-
-int NeuralNet::getdefaultGpuIdx(ComputeContext* computeContext) {
-  return computeContext->devicesContext->defaultGpuIdx;
-}
-
-int NeuralNet::getNumAllGpu(ComputeContext* computeContext) {
-  return computeContext->numGpu;
 }
 
 

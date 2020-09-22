@@ -1,9 +1,6 @@
 #include "../neuralnet/nneval.h"
 #include "../neuralnet/modelversion.h"
 
-#include <chrono>
-#include <ctime>
-
 using namespace std;
 
 //-------------------------------------------------------------------------------------
@@ -136,9 +133,6 @@ NNEvaluator::NNEvaluator(
   }
   numResultBufssMask = numResultBufss - 1;
 
-//std::cout << "numResultBufss:" << numResultBufss << std::endl;
-//std::cout << "maxNumRows:" << maxNumRows << std::endl;
-
   if(nnCacheSizePowerOfTwo >= 0)
     nnCacheTable = new NNCacheTable(nnCacheSizePowerOfTwo, nnMutexPoolSizePowerofTwo);
 
@@ -154,15 +148,6 @@ NNEvaluator::NNEvaluator(
       openCLTunerFile,homeDataDirOverride,openCLReTunePerBoardSize,
       usingFP16Mode,usingNHWCMode,loadedModel
     );
-if(gpuIdxByServerThread[0] == -1)
-//  gpuIdxByServerThread[0] = computeContext->devicesContext->defaultGpuIdx;
-  gpuIdxByServerThread[0] = NeuralNet::getdefaultGpuIdx(computeContext);
-//numThreads *= 2;
-size_t numGpu = gpuIdxByServerThread.size();
-int numAllGpu = NeuralNet::getNumAllGpu(computeContext) / 2;
-for(size_t dev_i = 0; dev_i < numGpu; dev_i++) {
-  gpuIdxByServerThread.push_back(gpuIdxByServerThread[dev_i]+numAllGpu);
-}
   }
   else {
     modelVersion = NNModelVersion::defaultModelVersion;
@@ -379,19 +364,6 @@ void NNEvaluator::serve(
     if(isKilled)
       break;
 
-/*
-char buffer[80];
-auto currentTime = std::chrono::system_clock::now();
-auto transformed = currentTime.time_since_epoch().count() / 1000000;
-auto millis = transformed % 1000;
-std::time_t tt;
-tt = std::chrono::system_clock::to_time_t ( currentTime );
-auto timeinfo = localtime (&tt);
-strftime (buffer,80,"%F %H:%M:%S",timeinfo);
-sprintf(buffer, "%s:%03d",buffer,(int)millis);
-std::cout << buffer << " start " << std::this_thread::get_id() << std::endl;
-*/
-
     std::swap(m_resultBufss[m_oldestResultBufsIdx],buf.resultBufs);
 
     int numRows;
@@ -495,8 +467,6 @@ std::cout << buffer << " start " << std::this_thread::get_id() << std::endl;
     if(doRandomize)
       symmetry = rand.nextUInt(NNInputs::NUM_SYMMETRY_COMBINATIONS);
 
-//std::cout << "NeuralNet::getOutput() start " << std::this_thread::get_id() << std::endl;
-//std::this_thread::sleep_for(std::chrono::seconds(30));
     NeuralNet::getOutput(gpuHandle, buf.inputBuffers, numRows, buf.resultBufs, symmetry, outputBuf);
     assert(outputBuf.size() == numRows);
 
@@ -508,26 +478,13 @@ std::cout << buffer << " start " << std::this_thread::get_id() << std::endl;
       NNResultBuf* resultBuf = buf.resultBufs[row];
       buf.resultBufs[row] = NULL;
 
-//std::cout << "unique_lock<std::mutex> resultLock(resultBuf->resultMutex) start " << std::this_thread::get_id() << std::endl;
       unique_lock<std::mutex> resultLock(resultBuf->resultMutex);
-//std::cout << "unique_lock<std::mutex> resultLock(resultBuf->resultMutex) end   " << std::this_thread::get_id() << std::endl;
-//std::this_thread::sleep_for(std::chrono::seconds(30));
       assert(resultBuf->hasResult == false);
       resultBuf->result = std::shared_ptr<NNOutput>(outputBuf[row]);
       resultBuf->hasResult = true;
       resultBuf->clientWaitingForResult.notify_all();
       resultLock.unlock();
     }
-/*
-currentTime = std::chrono::system_clock::now();
-transformed = currentTime.time_since_epoch().count() / 1000000;
-millis = transformed % 1000;
-tt = std::chrono::system_clock::to_time_t ( currentTime );
-timeinfo = localtime (&tt);
-strftime (buffer,80,"%F %H:%M:%S",timeinfo);
-sprintf(buffer, "%s:%03d",buffer,(int)millis);
-std::cout << buffer << " end   " << std::this_thread::get_id() << std::endl;
-*/
 
     continue;
   }
@@ -661,11 +618,6 @@ void NNEvaluator::evaluate(
   }
 
   unique_lock<std::mutex> lock(bufferMutex);
-
-//std::cout << "thread:" << std::this_thread::get_id() << std::endl;
-//std::cout << "m_currentResultBufsLen:" << m_currentResultBufsLen << std::endl;
-//std::cout << "m_currentResultBufsIdx:" << m_currentResultBufsIdx << std::endl;
-//std::cout << "m_oldestResultBufsIdx:" << m_oldestResultBufsIdx << std::endl;
 
   m_resultBufss[m_currentResultBufsIdx][m_currentResultBufsLen] = &buf;
   m_currentResultBufsLen += 1;

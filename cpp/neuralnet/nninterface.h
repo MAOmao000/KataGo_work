@@ -119,9 +119,6 @@ namespace NeuralNet {
     std::vector<NNOutput*>& outputs
   );
 
-  int getdefaultGpuIdx(ComputeContext* computeContext);
-  int getNumAllGpu(ComputeContext* computeContext);
-
 
   //FOR TESTING -----------------------------------------------------------------------
   //For all of the below, the input buffers must have exactly the size expected of the input for the operation.

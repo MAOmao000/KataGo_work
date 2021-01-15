@@ -65,8 +65,8 @@ static const vector<string> knownCommands = {
 
   //GTP extensions for board analysis
   // "genmove_analyze",
-//  "lz-genmove_analyze",
-//  "kata-genmove_analyze",
+  "lz-genmove_analyze",
+  "kata-genmove_analyze",
   // "analyze",
   "lz-analyze",
   "kata-analyze",
@@ -402,11 +402,11 @@ struct GTPEngine {
     }
 
     int maxConcurrentEvals = params.numThreads * 2 + 16; // * 2 + 16 just to give plenty of headroom
-//    int maxConcurrentEvals = params.numThreads * 4 + 32; // * 2 + 16 just to give plenty of headroom
     int expectedConcurrentEvals = params.numThreads;
     int defaultMaxBatchSize = std::max(8,((params.numThreads+3)/4)*4);
+    string expectedSha256 = "";
     nnEval = Setup::initializeNNEvaluator(
-      nnModelFile,nnModelFile,cfg,logger,seedRand,maxConcurrentEvals,expectedConcurrentEvals,
+      nnModelFile,nnModelFile,expectedSha256,cfg,logger,seedRand,maxConcurrentEvals,expectedConcurrentEvals,
       boardXSize,boardYSize,defaultMaxBatchSize,
       Setup::SETUP_FOR_GTP
     );
@@ -492,6 +492,7 @@ struct GTPEngine {
     }
     Player pla = P_BLACK;
     BoardHistory hist(board,pla,currentRules,0);
+    hist.setInitialTurnNumber(board.numStonesOnBoard()); //Heuristic to guess at what turn this is
     vector<Move> newMoveHistory;
     setPositionAndRules(pla,board,hist,board,pla,newMoveHistory);
     clearStatsForNewGame();
@@ -542,6 +543,7 @@ struct GTPEngine {
 
     Board undoneBoard = initialBoard;
     BoardHistory undoneHist(undoneBoard,initialPla,currentRules,0);
+    undoneHist.setInitialTurnNumber(bot->getRootHist().initialTurnNumber);
     vector<Move> emptyMoveHistory;
     setPositionAndRules(initialPla,undoneBoard,undoneHist,initialBoard,initialPla,emptyMoveHistory);
 
@@ -571,6 +573,7 @@ struct GTPEngine {
 
     Board board = initialBoard;
     BoardHistory hist(board,initialPla,newRules,0);
+    hist.setInitialTurnNumber(bot->getRootHist().initialTurnNumber);
     vector<Move> emptyMoveHistory;
     setPositionAndRules(initialPla,board,hist,initialBoard,initialPla,emptyMoveHistory);
 
@@ -611,6 +614,8 @@ struct GTPEngine {
     std::function<void(const Search* search)> callback;
     //lz-analyze
     if(args.lz && !args.kata) {
+      //Avoid capturing anything by reference except [this], since this will potentially be used
+      //asynchronously and called after we return
       callback = [args,pla,this](const Search* search) {
         vector<AnalysisData> buf;
         search->getAnalysisData(buf,args.minMoves,false,analysisPVLen);
@@ -965,6 +970,7 @@ struct GTPEngine {
     //Also switch the initial player, expecting white should be next.
     hist.clear(board,P_WHITE,currentRules,0);
     hist.setAssumeMultipleStartingBlackMovesAreHandicap(assumeMultipleStartingBlackMovesAreHandicap);
+    hist.setInitialTurnNumber(board.numStonesOnBoard()); //Should give more accurate temperaure and time control behavior
     pla = P_WHITE;
 
     response = "";
@@ -1006,6 +1012,7 @@ struct GTPEngine {
     //Also switch the initial player, expecting white should be next.
     hist.clear(board,P_WHITE,currentRules,0);
     hist.setAssumeMultipleStartingBlackMovesAreHandicap(assumeMultipleStartingBlackMovesAreHandicap);
+    hist.setInitialTurnNumber(board.numStonesOnBoard()); //Should give more accurate temperaure and time control behavior
     pla = P_WHITE;
 
     response = "";
@@ -1047,7 +1054,7 @@ struct GTPEngine {
       bot->setParams(params);
     }
 
-    std::function<void(Search* search)> callback = getAnalyzeCallback(pla,args);
+    std::function<void(const Search* search)> callback = getAnalyzeCallback(pla,args);
     bot->setAvoidMoveUntilByLoc(args.avoidMoveUntilByLocBlack,args.avoidMoveUntilByLocWhite);
     if(args.showOwnership)
       bot->setAlwaysIncludeOwnerMap(true);
@@ -1055,7 +1062,7 @@ struct GTPEngine {
       bot->setAlwaysIncludeOwnerMap(false);
 
     double searchFactor = 1e40; //go basically forever
-    bot->analyze(pla, searchFactor, args.secondsPerReport, callback);
+    bot->analyzeAsync(pla, searchFactor, args.secondsPerReport, callback);
   }
 
   double computeLead(Logger& logger) {
@@ -1119,19 +1126,13 @@ struct GTPEngine {
     return isAlive;
   }
 
-  //-1 means all
   string rawNN(int whichSymmetry) {
     if(nnEval == NULL)
       return "";
     ostringstream out;
 
-    bool oldDoRandomize = nnEval->getDoRandomize();
-    int oldDefaultSymmetry = nnEval->getDefaultSymmetry();
-
-    for(int symmetry = 0; symmetry<8; symmetry++) {
-      if(whichSymmetry == -1 || whichSymmetry == symmetry) {
-        nnEval->setDoRandomize(false);
-        nnEval->setDefaultSymmetry(symmetry);
+    for(int symmetry = 0; symmetry < NNInputs::NUM_SYMMETRY_COMBINATIONS; symmetry++) {
+      if(whichSymmetry == NNInputs::SYMMETRY_ALL || whichSymmetry == symmetry) {
         Board board = bot->getRootBoard();
         BoardHistory hist = bot->getRootHist();
         Player nextPla = bot->getRootPla();
@@ -1140,6 +1141,7 @@ struct GTPEngine {
         nnInputParams.playoutDoublingAdvantage =
           (params.playoutDoublingAdvantagePla == C_EMPTY || params.playoutDoublingAdvantagePla == nextPla) ?
           staticPlayoutDoublingAdvantage : -staticPlayoutDoublingAdvantage;
+        nnInputParams.symmetry = symmetry;
         NNResultBuf buf;
         bool skipCache = true;
         bool includeOwnerMap = true;
@@ -1153,6 +1155,9 @@ struct GTPEngine {
         out << "whiteLead " << Global::strprintf("%.3f",nnOutput->whiteLead) << endl;
         out << "whiteScoreSelfplay " << Global::strprintf("%.3f",nnOutput->whiteScoreMean) << endl;
         out << "whiteScoreSelfplaySq " << Global::strprintf("%.3f",nnOutput->whiteScoreMeanSq) << endl;
+        out << "varTimeLeft " << Global::strprintf("%.3f",nnOutput->varTimeLeft) << endl;
+        out << "shorttermWinlossError " << Global::strprintf("%.3f",nnOutput->shorttermWinlossError) << endl;
+        out << "shorttermScoreError " << Global::strprintf("%.3f",nnOutput->shorttermScoreError) << endl;
 
         out << "policy" << endl;
         for(int y = 0; y<board.y_size; y++) {
@@ -1164,6 +1169,16 @@ struct GTPEngine {
             else
               out << Global::strprintf("%8.6f ", prob);
           }
+          out << endl;
+        }
+        out << "policyPass ";
+        {
+          int pos = NNPos::locToPos(Board::PASS_LOC,board.x_size,nnOutput->nnXLen,nnOutput->nnYLen);
+          float prob = nnOutput->policyProbs[pos];
+          if(prob < 0)
+            out << "    NAN "; // Probably shouldn't ever happen for pass unles the rules change, but we handle it anyways
+          else
+            out << Global::strprintf("%8.6f ", prob);
           out << endl;
         }
 
@@ -1180,8 +1195,6 @@ struct GTPEngine {
       }
     }
 
-    nnEval->setDoRandomize(oldDoRandomize);
-    nnEval->setDefaultSymmetry(oldDefaultSymmetry);
     return Global::trim(out.str());
   }
 
@@ -1400,7 +1413,7 @@ int MainCmds::gtp(int argc, const char* const* argv) {
   const bool logSearchInfo = cfg.getBool("logSearchInfo");
   bool loggingToStderr = false;
 
-  bool logTimeStamp = cfg.contains("logTimeStamp") ? cfg.getBool("logTimeStamp") : true;
+  const bool logTimeStamp = cfg.contains("logTimeStamp") ? cfg.getBool("logTimeStamp") : true;
   if(!logTimeStamp)
     logger.setLogTime(false);
 
@@ -1426,8 +1439,15 @@ int MainCmds::gtp(int argc, const char* const* argv) {
   if(startupPrintMessageToStderr && !loggingToStderr) {
     cerr << "Using " + initialRules.toStringNoKomiMaybeNice() + " rules initially, unless GTP/GUI overrides this" << endl;
   }
+  bool isForcingKomi = false;
+  float forcedKomi = 0;
+  if(cfg.contains("ignoreGTPAndForceKomi")) {
+    isForcingKomi = true;
+    forcedKomi = cfg.getFloat("ignoreGTPAndForceKomi", Rules::MIN_USER_KOMI, Rules::MAX_USER_KOMI);
+    initialRules.komi = forcedKomi;
+  }
 
-  SearchParams initialParams = Setup::loadSingleParams(cfg);
+  SearchParams initialParams = Setup::loadSingleParams(cfg,Setup::SETUP_FOR_GTP);
   logger.write("Using " + Global::intToString(initialParams.numThreads) + " CPU thread(s) for search");
   //Set a default for conservativePass that differs from matches or selfplay
   if(!cfg.contains("conservativePass") && !cfg.contains("conservativePass0"))
@@ -1698,6 +1718,8 @@ int MainCmds::gtp(int argc, const char* const* argv) {
         response = "komi must be an integer or half-integer";
       }
       else {
+        if(isForcingKomi)
+          newKomi = forcedKomi;
         engine->updateKomiIfNew(newKomi);
         //In case the controller tells us komi every move, restart pondering afterward.
         maybeStartPondering = engine->bot->getRootHist().moveHistory.size() > 0;
@@ -2289,6 +2311,7 @@ int MainCmds::gtp(int argc, const char* const* argv) {
 
         Player pla = P_WHITE;
         BoardHistory hist(board,pla,engine->getCurrentRules(),0);
+        hist.setInitialTurnNumber(board.numStonesOnBoard()); //Should give more accurate temperaure and time control behavior
         vector<Move> newMoveHistory;
         engine->setPositionAndRules(pla,board,hist,board,pla,newMoveHistory);
       }
@@ -2414,8 +2437,10 @@ int MainCmds::gtp(int argc, const char* const* argv) {
           try {
             sgf = CompactSgf::loadFile(filename);
 
+            if(sgf->moves.size() > 0x3FFFFFFF)
+              throw StringError("Sgf has too many moves");
             if(!moveNumberSpecified || moveNumber > sgf->moves.size())
-              moveNumber = sgf->moves.size();
+              moveNumber = (int)sgf->moves.size();
 
             sgfRules = sgf->getRulesOrWarn(
               engine->getCurrentRules(), //Use current rules as default
@@ -2435,6 +2460,9 @@ int MainCmds::gtp(int argc, const char* const* argv) {
               }
             }
 
+            if(isForcingKomi)
+              sgfRules.komi = forcedKomi;
+
             {
               //See if the rules differ, IGNORING komi differences
               Rules currentRules = engine->getCurrentRules();
@@ -2449,6 +2477,7 @@ int MainCmds::gtp(int argc, const char* const* argv) {
             }
 
             sgf->setupInitialBoardAndHist(sgfRules, sgfInitialBoard, sgfInitialNextPla, sgfInitialHist);
+            sgfInitialHist.setInitialTurnNumber(sgfInitialBoard.numStonesOnBoard()); //Should give more accurate temperaure and time control behavior
             sgfBoard = sgfInitialBoard;
             sgfNextPla = sgfInitialNextPla;
             sgfHist = sgfInitialHist;
@@ -2492,12 +2521,12 @@ int MainCmds::gtp(int argc, const char* const* argv) {
       }
       else if(pieces.size() == 0 || pieces[0] == "-") {
         ostringstream out;
-        WriteSgf::writeSgf(out,"","",engine->bot->getRootHist(),NULL,true);
+        WriteSgf::writeSgf(out,"","",engine->bot->getRootHist(),NULL,true,false);
         response = out.str();
       }
       else {
         ofstream out(pieces[0]);
-        WriteSgf::writeSgf(out,"","",engine->bot->getRootHist(),NULL,true);
+        WriteSgf::writeSgf(out,"","",engine->bot->getRootHist(),NULL,true,false);
         out.close();
         response = "";
       }
@@ -2528,13 +2557,13 @@ int MainCmds::gtp(int argc, const char* const* argv) {
     }
 
     else if(command == "kata-raw-nn") {
-      int whichSymmetry = -1;
+      int whichSymmetry = NNInputs::SYMMETRY_ALL;
       bool parsed = false;
       if(pieces.size() == 1) {
         string s = Global::trim(Global::toLower(pieces[0]));
         if(s == "all")
           parsed = true;
-        else if(Global::tryStringToInt(s,whichSymmetry) && whichSymmetry >= 0 && whichSymmetry <= 7)
+        else if(Global::tryStringToInt(s,whichSymmetry) && whichSymmetry >= 0 && whichSymmetry <= NNInputs::NUM_SYMMETRY_COMBINATIONS-1)
           parsed = true;
       }
 
